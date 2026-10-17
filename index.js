@@ -1,5 +1,5 @@
 
-const TOKEN = process.env.BOT_TOKEN;
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHANNEL = "@IranGoldPrices";
 
 const API =
