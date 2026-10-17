@@ -1,153 +1,157 @@
+const https = require('https');
+
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHANNEL = "@IranGoldPrices";
+const CHANNEL = '@IranGoldPrices';
 
-const API =
-"https://raw.githubusercontent.com/iran-market/iran-market.github.io/main/data/popular.json";
+const PRICE_URL =
+  'https://raw.githubusercontent.com/iran-market/iran-market.github.io/main/data/popular.json';
 
-async function sendMessage(text) {
-const response = await fetch(
-"https://api.telegram.org/bot${TOKEN}/sendMessage",
-{
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-chat_id: CHANNEL,
-text,
-}),
-}
-);
-
-const result = await response.json();
-
-if (!result.ok) {
-throw new Error("Telegram: " + result.description);
+if (!TOKEN) {
+  throw new Error('TELEGRAM_BOT_TOKEN is not configured');
 }
 
-console.log("پیام با موفقیت ارسال شد.");
-}
+function getJSON(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`HTTP error: ${res.statusCode}`));
+        return;
+      }
 
-async function updatePrices() {
-try {
-console.log("در حال دریافت قیمت‌ها...");
+      let data = '';
 
-const response = await fetch(API);
-
-if (!response.ok) {
-  throw new Error("خطای دریافت منبع قیمت: " + response.status);
-}
-
-const result = await response.json();
-
-const items = Array.isArray(result)
-  ? result
-  : Array.isArray(result.data)
-  ? result.data
-  : Array.isArray(result.results)
-  ? result.results
-  : null;
-
-if (!items) {
-  throw new Error(
-    "ساختار اطلاعات منبع قیمت شناخته نشد."
-  );
-}
-
-function findItem(words) {
-  return items.find((item) => {
-    const text = [
-      item.name_fa,
-      item.name,
-      item.symbol,
-      item.slug,
-      item.key,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return words.some((word) =>
-      text.includes(word.toLowerCase())
-    );
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }).on('error', reject);
   });
 }
 
-function getPrice(item) {
-  if (!item) return null;
-
-  const value =
-    item.price ??
-    item.value ??
-    item.sell ??
-    item.sell_price ??
-    item.latest;
-
-  if (value === undefined || value === null) return null;
-
-  const number = Number(
-    String(value).replace(/,/g, "")
-  );
-
-  return Number.isFinite(number) && number > 0
-    ? number
-    : null;
-}
-
 function formatPrice(value) {
-  return value === null
-    ? "ناموجود"
-    : value.toLocaleString("en-US");
+  return Number(value).toLocaleString('en-US');
 }
 
-const dollar = getPrice(
-  findItem(["دلار آزاد", "دلار آمریکا", "usd_irr_free"])
-);
+function formatChange(value) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return 'نامشخص';
+  }
 
-const euro = getPrice(
-  findItem(["یورو آزاد", "یورو", "eur_irr_free"])
-);
+  const number = Number(value);
+  const sign = number > 0 ? '+' : '';
 
-const pound = getPrice(
-  findItem(["پوند انگلیس", "پوند"])
-);
-
-const gold18 = getPrice(
-  findItem(["طلای ۱۸ عیار", "طلای 18 عیار", "gold_18k"])
-);
-
-const gold24 =
-  gold18 === null ? null : Math.round(gold18 / 0.75);
-
-const now = new Date().toLocaleString("fa-IR", {
-  timeZone: "Asia/Tehran",
-});
-
-const message = [
-  "📊 نبض بازار | قیمت طلا و ارز",
-  "━━━━━━━━━━━━━━",
-  `💵 دلار آزاد: ${formatPrice(dollar)}${dollar === null ? "" : " تومان"}`,
-  `💶 یورو آزاد: ${formatPrice(euro)}${euro === null ? "" : " تومان"}`,
-  `🇬🇧 پوند انگلیس: ${formatPrice(pound)}${pound === null ? "" : " تومان"}`,
-  `🟡 طلای ۱۸ عیار: ${formatPrice(gold18)}${gold18 === null ? "" : " تومان"}`,
-  `✨ طلای ۲۴ عیار: ${formatPrice(gold24)}${gold24 === null ? "" : " تومان"}${gold24 === null ? "" : " (تقریبی)"}`,
-  "🇮🇶 دینار عراق: در انتظار منبع معتبر",
-  "🪙 طلای آب‌شده: در انتظار منبع معتبر",
-  "━━━━━━━━━━━━━━",
-  `🕒 زمان به‌روزرسانی: ${now}`,
-  "📢 @IranGoldPrices",
-].join("\n");
-
-await sendMessage(message);
-
-} catch (error) {
-console.error("خطا در به‌روزرسانی:", error.message);
-}
+  return sign + number.toLocaleString('en-US');
 }
 
-if (!TOKEN) {
-throw new Error(
-"متغیر TELEGRAM_BOT_TOKEN در تنظیمات FadeHost تنظیم نشده است."
-);
+async function sendTelegramMessage(text) {
+  const url = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
+
+  const body = JSON.stringify({
+    chat_id: CHANNEL,
+    text,
+    disable_web_page_preview: true
+  });
+
+  await new Promise((resolve, reject) => {
+    const request = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => data += chunk);
+
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+
+          if (res.statusCode !== 200 || !result.ok) {
+            reject(new Error(
+              result.description || `Telegram HTTP ${res.statusCode}`
+            ));
+            return;
+          }
+
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on('error', reject);
+    request.setTimeout(15000, () => {
+      request.destroy(new Error('Telegram request timed out'));
+    });
+
+    request.write(body);
+    request.end();
+  });
 }
 
-updatePrices();
-setInterval(updatePrices, 60 * 1000);
+async function publishPrices() {
+  try {
+    console.log('Fetching market prices...');
+
+    const result = await getJSON(PRICE_URL);
+    const items = result.data;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Price data is empty or invalid');
+    }
+
+    const wanted = [
+      ['USD_IRR_FREE', '💵 دلار آمریکا'],
+      ['EUR_IRR_FREE', '💶 یورو'],
+      ['GBP_IRR_FREE', '💷 پوند انگلیس'],
+      ['GOLD_18K_IRR', '🪙 طلای ۱۸ عیار (هر گرم)'],
+      ['COIN_EMAMI_IRR', '🟡 سکه امامی'],
+      ['USDT_IRR', '₮ تتر']
+    ];
+
+    const lines = [];
+
+    for (const [symbol, name] of wanted) {
+      const item = items.find((entry) => entry.symbol === symbol);
+
+      if (item && Number.isFinite(Number(item.price))) {
+        lines.push(
+          `${name}: ${formatPrice(item.price)} تومان\n` +
+          `تغییر: ${formatChange(item.change)} تومان`
+        );
+      } else {
+        lines.push(`${name}: اطلاعات موجود نیست`);
+      }
+    }
+
+    const updatedAt =
+      result.meta?.updated_at || new Date().toISOString();
+
+    const message =
+      `📊 قیمت روز طلا و ارز\n\n` +
+      `${lines.join('\n\n')}\n\n` +
+      `🕒 زمان آخرین به‌روزرسانی منبع: ${updatedAt}\n` +
+      `📌 منبع داده: TGJU\n` +
+      `⚠️ قیمت‌ها ممکن است با بازار لحظه‌ای تفاوت داشته باشند.`;
+
+    await sendTelegramMessage(message);
+
+    console.log('Prices published successfully.');
+  } catch (error) {
+    console.error('Price publishing failed:', error.message);
+  }
+}
+
+publishPrices();
+
+setInterval(publishPrices, 30 * 60 * 1000);
